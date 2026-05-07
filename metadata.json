@@ -1,0 +1,5 @@
+{
+  "name": "Analisador MegaSena Pro",
+  "description": "App profissional para análise estatística, tendências e geração de jogos para a Mega Sena com suporte a PWA e carregamento via Excel.",
+  "requestFramePermissions": []
+}
