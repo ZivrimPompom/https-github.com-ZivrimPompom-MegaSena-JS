@@ -27,6 +27,7 @@ import { AnalysisResult, Game, ParityStats } from './types';
 
 export default function App() {
   const [data, setData] = useState<number[][]>([]);
+  const [lastContest, setLastContest] = useState<number>(0);
   const [contestsToAnalyze, setContestsToAnalyze] = useState(20);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [parityStats, setParityStats] = useState<ParityStats[]>([]);
@@ -60,100 +61,117 @@ export default function App() {
   }, [data, generatedGames.length]);
 
   const processRawData = (rawData: any[][], source: 'local' | 'sync' = 'local') => {
-    const processed: number[][] = [];
+    const processed: { id: number; balls: number[] }[] = [];
     
-    if (!rawData || !Array.isArray(rawData) || rawData.length === 0) return [];
+    if (!rawData || !Array.isArray(rawData) || rawData.length === 0) return { games: [], lastId: 0 };
 
     console.log(`Iniciando processamento de ${rawData.length} linhas (${source})...`);
 
-    // Mega-Sena structure detection
-    // Find the likely columns for the 6 balls by scanning top rows
-    let ballColumns: number[] = [];
+    // Mega-Sena: Detecção robusta de colunas de dezenas
+    let detectedBallIndices: number[] = [];
+    let contestColIndex = 0; // Geralmente coluna A (índice 0)
     
-    // Heuristic: search for a row that has at least 6 cells with numbers 1-60
-    // and try to identify which indices they are.
-    for (let r = 0; r < Math.min(100, rawData.length); r++) {
-      const row = rawData[r];
+    for (let i = 0; i < Math.min(100, rawData.length); i++) {
+      const row = rawData[i];
       if (!Array.isArray(row)) continue;
-      
-      const candidateIndices: number[] = [];
+
+      const candidates: number[] = [];
       row.forEach((cell, idx) => {
         const val = parseCellToBall(cell);
-        if (!isNaN(val)) candidateIndices.push(idx);
+        if (!isNaN(val)) candidates.push(idx);
       });
 
-      // If we found exactly 6 or a sequence of at least 6
-      if (candidateIndices.length >= 6) {
-        // Look for 6 consecutive indices
-        for (let i = 0; i <= candidateIndices.length - 6; i++) {
-          const slice = candidateIndices.slice(i, i + 6);
-          const isConsecutive = slice.every((val, idx) => idx === 0 || val === slice[idx-1] + 1);
-          if (isConsecutive) {
-            ballColumns = slice;
-            break;
+      if (candidates.length >= 6) {
+        for (let j = 0; j <= candidates.length - 6; j++) {
+          const slice = candidates.slice(j, j + 6);
+          const isConsecutiveCols = slice.every((val, idx) => idx === 0 || val === slice[idx-1] + 1);
+          
+          if (isConsecutiveCols) {
+            const values = slice.map(idx => parseCellToBall(row[idx]));
+            const isLabelHeader = values.every((v, idx) => v === idx + 1);
+            if (!isLabelHeader) {
+              detectedBallIndices = slice;
+              // Se as bolas começam na coluna C (idx 2), o concurso provavelmente está na A (idx 0)
+              if (slice[0] >= 2) contestColIndex = 0;
+              break;
+            }
           }
         }
-        if (ballColumns.length === 6) break;
+        if (detectedBallIndices.length === 6) break;
       }
     }
 
-    if (ballColumns.length === 0) {
-      console.log("Aviso: Faixa de colunas padrão não detectada. Usando fallback heurístico.");
-      // Fallback: commonly indices 2-7 or 0-5
-      ballColumns = [2, 3, 4, 5, 6, 7];
+    if (detectedBallIndices.length === 0) {
+      console.log("Usando fallback de colunas C até H (índices 2-7).");
+      detectedBallIndices = [2, 3, 4, 5, 6, 7];
     }
 
-    rawData.forEach((row) => {
+    rawData.forEach((row, rowIndex) => {
       if (!Array.isArray(row)) return;
 
-      // Try detected columns
-      const ballsByCols = ballColumns.map(idx => parseCellToBall(row[idx]));
-      if (ballsByCols.every(v => !isNaN(v))) {
-        processed.push([...ballsByCols].sort((a, b) => a - b));
-        return;
+      let balls: number[] = [];
+      let contestId = 0;
+
+      // Extração do ID do concurso (Número na primeira coluna disponível antes das dezenas)
+      const potentialId = parseInt(String(row[contestColIndex] || '').trim().replace(/[^0-9]/g, ''), 10);
+      if (!isNaN(potentialId) && potentialId > 0) {
+        contestId = potentialId;
       }
 
-      // Hard fallback: Search for ANY 6 consecutive balls in the row
-      for (let i = 0; i <= row.length - 6; i++) {
-        const window = row.slice(i, i + 6).map(c => parseCellToBall(c));
-        if (window.every(v => !isNaN(v))) {
-          processed.push([...window].sort((a,b) => a-b));
-          return;
+      // Extração das dezenas
+      if (detectedBallIndices.length === 6) {
+        const potential = detectedBallIndices.map(idx => parseCellToBall(row[idx]));
+        if (potential.every(v => !isNaN(v))) {
+          balls = potential;
+        }
+      }
+
+      // Fallback de busca na linha toda se falhou
+      if (balls.length === 0) {
+        const allNumsInRow: number[] = [];
+        row.forEach((cell) => {
+          const val = parseCellToBall(cell);
+          if (!isNaN(val)) allNumsInRow.push(val);
+        });
+
+        if (allNumsInRow.length >= 6) {
+           // Se temos 7 números, o primeiro é provavelmente o concurso
+           if (allNumsInRow.length === 7) {
+             if (contestId === 0) contestId = allNumsInRow[0];
+             balls = allNumsInRow.slice(1, 7);
+           } else {
+             balls = allNumsInRow.slice(0, 6);
+           }
         }
       }
       
-      // Multi-ball string fallback "10-20-30..."
-      const joinedRow = row.join(' ');
-      if (joinedRow.length > 10) {
-        const numbersFound = joinedRow.match(/\b([1-9]|[1-5][0-9]|60)\b/g);
-        if (numbersFound && numbersFound.length >= 6) {
-          const candidates = Array.from(new Set(numbersFound.map(n => parseInt(n, 10))));
-          if (candidates.length >= 6) {
-             // Take the first 6 that look like dezenas
-             processed.push(candidates.slice(0, 6).sort((a, b) => a - b));
-          }
-        }
+      if (balls.length === 6) {
+        const sorted = [...balls].sort((a, b) => a - b);
+        const isSequential = sorted.every((val, idx) => idx === 0 || val === sorted[idx-1] + 1);
+        if (isSequential && sorted[0] === 1 && rowIndex < 15) return;
+
+        processed.push({ id: contestId || processed.length + 1, balls: sorted });
       }
     });
 
-    if (processed.length === 0) {
-      console.warn(`Nenhum resultado válido encontrado.`);
-      return [];
-    }
+    if (processed.length === 0) return { games: [], lastId: 0 };
     
-    // De-duplicate results
-    const uniqueProcessed: number[][] = [];
+    // De-duplicação
+    const uniqueGames: { id: number; balls: number[] }[] = [];
     const seen = new Set<string>();
-    processed.forEach(game => {
-      const key = game.join(',');
+    processed.forEach(item => {
+      const key = item.balls.join(',');
       if (!seen.has(key)) {
         seen.add(key);
-        uniqueProcessed.push(game);
+        uniqueGames.push(item);
       }
     });
 
-    console.log(`Sucesso: ${uniqueProcessed.length} registros extraídos.`);
-    return uniqueProcessed; 
+    const lastId = Math.max(...uniqueGames.map(g => g.id), 0);
+    return { 
+      games: uniqueGames.map(g => g.balls), 
+      lastId 
+    }; 
   };
 
   const parseCellToBall = (cell: any): number => {
@@ -331,15 +349,17 @@ export default function App() {
       
       let bestSheetData: number[][] = [];
       let bestSheetName = '';
+      let currentLastId = 0;
       
       // Scan all sheets to find the one with the most records
       for (const sn of wb.SheetNames) {
         const ws = wb.Sheets[sn];
         const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as any[][];
         if (rows.length > 0) {
-          const processed = processRawData(rows, 'local');
-          if (processed.length > bestSheetData.length) {
-            bestSheetData = processed;
+          const { games, lastId } = processRawData(rows, 'local');
+          if (games.length > bestSheetData.length) {
+            bestSheetData = games;
+            currentLastId = lastId;
             bestSheetName = sn;
           }
         }
@@ -347,6 +367,7 @@ export default function App() {
 
       if (bestSheetData.length > 0) {
         setData(bestSheetData);
+        setLastContest(currentLastId);
         setFileName(file.name);
         setSyncError(null);
         
@@ -410,13 +431,14 @@ export default function App() {
         return;
       }
 
-      const { data, fileName } = result;
+      const { data: rawDataFromSync, fileName: syncFileName } = result;
 
-      const processedData = processRawData(data, 'sync');
+      const { games: processedData, lastId: syncLastId } = processRawData(rawDataFromSync, 'sync');
 
       if (processedData.length > 0) {
         setData(processedData);
-        setFileName(fileName);
+        setLastContest(syncLastId);
+        setFileName(syncFileName);
         const result = analyzeFrequenciy(processedData, contestsToAnalyze);
         setAnalysis(result);
         setParityStats(calculateParityStats(result));
@@ -677,7 +699,7 @@ export default function App() {
           {/* Stats */}
           <div className="glass px-2 md:px-3 py-1.5 rounded-lg text-right flex flex-col justify-center min-w-fit shrink-0">
             <span className="block text-[7px] md:text-[8px] uppercase text-slate-500 font-bold tracking-wider leading-tight text-center sm:text-right">Último</span>
-            <span className="block text-xs md:text-base font-mono text-white leading-tight text-center sm:text-right px-2">{data.length || '----'}</span>
+            <span className="block text-xs md:text-base font-mono text-white leading-tight text-center sm:text-right px-2">{lastContest || '----'}</span>
           </div>
           <div className="glass px-2 md:px-3 py-1.5 rounded-lg text-right flex flex-col justify-center min-w-fit shrink-0">
             <span className="block text-[7px] md:text-[8px] uppercase text-slate-500 font-bold tracking-wider leading-tight text-center sm:text-right">Base</span>

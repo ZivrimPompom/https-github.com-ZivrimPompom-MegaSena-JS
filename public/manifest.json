@@ -1,7 +1,7 @@
 {
-  "name": "Analisador Lotofácil Pro",
-  "short_name": "LotoPro",
-  "description": "Análise avançada e geração de jogos para Lotofácil",
+  "name": "Analisador Mega-Sena Pro",
+  "short_name": "MegaPro",
+  "description": "Análise avançada e geração de jogos para Mega-Sena",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

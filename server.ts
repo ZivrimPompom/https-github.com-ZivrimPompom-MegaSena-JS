@@ -70,11 +70,12 @@ app.get("/api/sync-caixa", async (req, res) => {
             const items = Array.isArray(parsed) ? parsed : [parsed];
             
             const rows = items.map((item: any) => {
-              // Handle different JSON structures from various APIs
-              if (item.dezenas && Array.isArray(item.dezenas)) {
-                return [item.concurso || item.numero || 0, ...item.dezenas.map(Number)];
+              // Handle common JSON keys for lottery results
+              const dezenas = item.dezenas || item.resultado || item.listaDezenas || item.dezenasSorteadas;
+              if (dezenas && Array.isArray(dezenas)) {
+                return [item.concurso || item.numero || item.numeroConcurso || 0, ...dezenas.map(Number)];
               }
-              // If it's a flat object with numbered keys or values
+              // Fallback: extract all numeric values from the object
               const values = Object.values(item);
               const numbers = values.filter(v => 
                 typeof v === 'number' || (typeof v === 'string' && /^\d+$/.test(v))

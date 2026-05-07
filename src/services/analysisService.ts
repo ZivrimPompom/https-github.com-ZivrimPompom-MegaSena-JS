@@ -1,7 +1,7 @@
 import { Category, DezenaFreq, AnalysisResult, Game, ParityStats } from '../types';
 
 /**
- * Funções utilitárias para análise da Lotofácil
+ * Funções utilitárias para análise da Mega-Sena
  */
 
 /**
@@ -59,6 +59,7 @@ export const analyzeFrequenciy = (data: number[][], contests: number): AnalysisR
     const num_freq = sortedUniqueFreqs.length;
     const tamanho = num_freq / 5;
     
+    // Alinhado com int(tamanho * X) do Python
     const idx1 = Math.max(1, Math.floor(tamanho * 1));
     const idx2 = Math.max(2, Math.floor(tamanho * 2));
     const idx3 = Math.max(3, Math.floor(tamanho * 3));
@@ -82,6 +83,7 @@ export const analyzeFrequenciy = (data: number[][], contests: number): AnalysisR
     freqs_quentissimas = [sortedUniqueFreqs[0]];
     freqs_geladas = [sortedUniqueFreqs[1]];
   } else {
+    // Apenas 1 nível de freq: Tudo Morna
     freqs_mornas = sortedUniqueFreqs;
   }
 
